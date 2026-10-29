@@ -1,7 +1,7 @@
 # dns-demo
 
 A containerized single-node ZPR environment for the DNS integration
-([zipline#34](https://github.com/mkolehmainen/zipline/issues/34); the design is
+([zipline#34](https://github.com/org-zpr/zl-zipline/issues/34); the design is
 `zl-zpr-dev-context/docs/DNS.md`).
 This fixture stands up node + visa service + web service + client + a CoreDNS
 resolver (`dns`), with a policy governing both DNS hops: a ZPR client `dig`s a
@@ -213,7 +213,7 @@ bare `users` condition can never match. `attrfile.json` is keyed by
 
 The `machines` store needs no such reference: it vends `device.hostname` and
 `device.zpr_addr`, both visa-service-interpreted attributes, and since
-[zipline#105](https://github.com/mkolehmainen/zipline/issues/105) the compiler
+[zipline#105](https://github.com/org-zpr/zl-zipline/issues/105) the compiler
 retains any store vending one (`device.hostname`, `device.zpr_addr`) on its
 own. The `ping` rule's object-side device spec `on hostname: devices`
 (key-presence on `device.hostname`) stays because it expresses the demo's
