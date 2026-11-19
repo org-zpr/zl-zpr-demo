@@ -8,6 +8,10 @@ services:
   # The relay Zode (node.demo) with the visa service and valkey beside it, in
   # one network namespace: vs.zpr (fd5a:5052::1) is a second address on the
   # relay's TUN, and every endpoint Zode links to this container's port 5000.
+  # No host port is published: the endpoints dial 172.30.1.10:5000 on the
+  # demo network, so the relay observes each one at its own container address
+  # (zl-zipline#264). A Zode coming in through a published port would be
+  # observed at the address Docker rewrote its source to instead.
   relay:
     image: zpr-dns-demo
     container_name: relay
@@ -22,9 +26,6 @@ services:
     networks:
       zpr-dns-demo:
         ipv4_address: 172.30.1.10
-    ports:
-      - "5000:5000/tcp"
-      - "5000:5000/udp"
 
   web:
     image: zpr-dns-demo

@@ -5,9 +5,9 @@
 # `zpr_address` pins that Zode's ZPR address to the CN. node.demo is the relay:
 # the only `transit = true` node and the only one with a substrate address,
 # compose's static IP. The endpoint Zodes (web.demo, dns.demo, alice) have no
-# substrate address -- the visa service takes the one each reports when it
-# connects -- and each is linked to the relay only, so the relay carries all
-# their traffic. vs.zpr is not a node: it is a second address on the relay's
+# substrate address -- the visa service takes the one the relay observed on
+# each Zode's initial link (zl-zipline#264) -- and each is linked to the relay
+# only, so the relay carries all their traffic. vs.zpr is not a node: it is a second address on the relay's
 # TUN. No `[visa_service] dock_node`: zplc 0.21.0 warns it is not enforced.
 
 [nodes."node.demo"]

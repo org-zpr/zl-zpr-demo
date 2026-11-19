@@ -20,7 +20,11 @@ LOGS_DIR="$DEMO_DIR/local-compute/logs"
 
 # The relay's substrate address: its docker-internal static IP
 # (docker-compose.yml) and port. Every endpoint Zode's initial link dials it,
-# and deploy-docker.sh renders it into the policy's relay node.
+# and deploy-docker.sh renders it into the policy's relay node, which is where
+# the visa service learns it. The endpoints' substrate addresses come from the
+# relay: it reports the source address it sees on each initial link
+# (zl-zipline#264). That is the container's own address, because they dial the
+# relay's network address, which Docker does not NAT.
 RELAY_SUBSTRATE_ADDR="172.30.1.10:5000"
 # The relay's certificate CN: the name an endpoint's initial link expects.
 RELAY_CN="node.demo"
@@ -60,8 +64,7 @@ declare -A LOG=(
 # as a relay that hosts the visa service must. Each endpoint has an initial
 # link to the relay and its node's zpr_address from the policy.
 declare -A LAUNCH=(
-  [relay]="$(zode_cmd node --advertised-substrate-addr "$RELAY_SUBSTRATE_ADDR" \
-    --relay true --forwarding true --zpr-addr fd5a:5052:90de::10 --zpr-addr fd5a:5052::1)"
+  [relay]="$(zode_cmd node --relay true --forwarding true --zpr-addr fd5a:5052:90de::10 --zpr-addr fd5a:5052::1)"
   [web]="$(zode_cmd web --initial-link "$RELAY_CN@$RELAY_SUBSTRATE_ADDR" --zpr-addr fd5a:5052:8888::80)"
   [client]="$(zode_cmd alice --initial-link "$RELAY_CN@$RELAY_SUBSTRATE_ADDR" --zpr-addr fd5a:5052:8888::13)"
   [dns]="$(zode_cmd dns --initial-link "$RELAY_CN@$RELAY_SUBSTRATE_ADDR" --zpr-addr fd5a:5052:8888::53)"
