@@ -9,9 +9,9 @@
 #   local-compute/test-dns.sh
 #
 # Sections:
-#   1. fixture sanity   — zpr-dns registered with its granted static address
+#   1. fixture sanity   — zpr-dns registered at its static address
 #   2. resolution       — AAAA answer, resolv.conf path, NODATA/NXDOMAIN shapes
-#   3. liveness         — stop web's adapter -> NXDOMAIN; restart -> resolves
+#   3. liveness         — stop web's Zode -> NXDOMAIN; restart -> resolves
 #   4. negative controls
 #      (a) hot-install a policy without `Allow zpr-dns to access vs-admin.`
 #          -> SERVFAIL (never NXDOMAIN) + a recorded deny to [fd5a:5052::1]:8182,
@@ -108,12 +108,12 @@ resolve_key_status() {  # $1 = URL path, e.g. /admin/visas
 # --- machine-name helpers (sections 6-8, zipline#55) ------------------------
 
 MACHINES_SRC="$ADMIN/machines.json"          # committed original
-MACHINES_LIVE="$CONF_ROOT/vs/machines.json"  # what the VS file store reads
+MACHINES_LIVE="$CONF_ROOT/relay/machines.json"  # what the VS file store reads
 VS_LOG="$SCRIPT_DIR/logs/vs.log"
 
-# The client actor's ZPR address, discovered by CN. Unlike web/dns, the client
-# has no static service address: the VS assigns its actor address at connect,
-# so it cannot be hardcoded.
+# The client actor's ZPR address, discovered by CN from the visa service, so
+# the test reads what the VS actually committed rather than restating the
+# policy's pin.
 client_addr() {
   "$CMDS/demo-vs-admin" actors 2>/dev/null | tr -d ' \n' \
     | sed -n 's/.*{"zpr_addr":"\([^"]*\)","cn":"alice"}.*/\1/p'
@@ -206,28 +206,10 @@ disarm_restore_trap() {
   trap - EXIT INT TERM
 }
 
-# Every fixture written over the live machines.json must stay a superset of
-# the committed static-address grants: the store now vends device.zpr_addr
-# (zipline#108), and since zipline#83 an adapter exits fatally when its
-# configured zpr_addr loses its grant. A fixture that drops web.demo's
-# zpr_addr or the dns.demo record would kill any web/DNS adapter that
-# reconnects during the test window and leave the demo broken. Called after
-# every fixture write, BEFORE the flush hands it to the VS.
-assert_fixture_keeps_grants() {
-  local ctx="$1"
-  if grep -q "\"$WEB_ADDR\"" "$MACHINES_LIVE" \
-     && grep -q '"dns\.demo"' "$MACHINES_LIVE" \
-     && grep -q "\"$RESOLVER\"" "$MACHINES_LIVE"; then
-    ok "$ctx fixture retains the web/dns static-address grants"
-  else
-    fail "$ctx fixture drops the web/dns zpr_addr grants from machines.json"
-  fi
-}
-
 # ---------------------------------------------------------------------------
-banner "1. fixture sanity: zpr-dns is registered with its granted static address"
+banner "1. fixture sanity: zpr-dns is registered at its static address"
 
-# The dns adapter registers its provider record moments after deploy returns;
+# The dns Zode registers its provider record moments after deploy returns;
 # poll rather than racing it.
 got_addr=""
 for _ in $(seq 1 15); do
@@ -242,7 +224,7 @@ done
 # ---------------------------------------------------------------------------
 banner "2. resolution: AAAA, resolv.conf path, NODATA and NXDOMAIN shapes"
 
-# The resolver and client adapters may still be visa-handshaking right after
+# The resolver and client Zodes may still be visa-handshaking right after
 # deploy; allow the first query a short settle window.
 if t=$(wait_rcode AAAA web.demo NOERROR 30); then
   ok "AAAA web.demo -> NOERROR (after ${t}s)"
@@ -282,24 +264,24 @@ rc="$(rcode AAAA a.b.demo)"
   || fail "AAAA a.b.demo -> $rc, wanted NXDOMAIN"
 
 # ---------------------------------------------------------------------------
-banner "3. liveness: stop web's adapter -> NXDOMAIN; restart -> resolves"
+banner "3. liveness: stop web's Zode -> NXDOMAIN; restart -> resolves"
 
 "$CMDS/demo-stop-ph" web || fail "demo-stop-ph web failed"
 
 if t=$(wait_rcode AAAA web.demo NXDOMAIN "$LIVENESS_DEADLINE"); then
-  ok "web.demo -> NXDOMAIN ${t}s after stopping web's adapter (deadline ${LIVENESS_DEADLINE}s)"
+  ok "web.demo -> NXDOMAIN ${t}s after stopping web's Zode (deadline ${LIVENESS_DEADLINE}s)"
   echo "LIVENESS_LATENCY_DOWN=${t}s"
 else
-  fail "web.demo still resolving ${LIVENESS_DEADLINE}s after adapter stop"
+  fail "web.demo still resolving ${LIVENESS_DEADLINE}s after Zode stop"
 fi
 
 "$CMDS/demo-restart-ph" web || fail "demo-restart-ph web failed"
 
 if t=$(wait_rcode AAAA web.demo NOERROR "$LIVENESS_DEADLINE"); then
-  ok "web.demo resolves again ${t}s after adapter restart"
+  ok "web.demo resolves again ${t}s after Zode restart"
   echo "LIVENESS_LATENCY_UP=${t}s"
 else
-  fail "web.demo did not resolve within ${LIVENESS_DEADLINE}s of adapter restart"
+  fail "web.demo did not resolve within ${LIVENESS_DEADLINE}s of Zode restart"
 fi
 
 # ---------------------------------------------------------------------------
@@ -315,7 +297,7 @@ grep -q 'Allow zpr-dns' "$ADMIN/dns-demo-novsadmin.zpl" \
 
 ( cd "$ADMIN" && "$BIN_DIR/zplc" --config dns-demo.zplc dns-demo-novsadmin.zpl ) \
   || fail "zplc failed on the variant policy"
-mv "$ADMIN/dns-demo-novsadmin.bin2" "$CONF_ROOT/vs/dns-demo-novsadmin.bin2"
+mv "$ADMIN/dns-demo-novsadmin.bin2" "$CONF_ROOT/relay/dns-demo-novsadmin.bin2"
 rm -f "$ADMIN/dns-demo-novsadmin.zpl"
 
 "$CMDS/demo-vs-admin" install /conf/dns-demo-novsadmin.bin2 >/dev/null \
@@ -428,24 +410,17 @@ arm_restore_trap
 
 # The client's machine also claims webhost. The web machine claimed it first,
 # so the claim must be refused, recorded, and logged — never reassigned.
-# Fixture = committed machines.json plus alice's competing claim: the zpr_addr
-# grants and the dns.demo record MUST survive every rewrite (see
-# assert_fixture_keeps_grants).
+# Fixture = committed machines.json plus alice's competing claim.
 cat > "$MACHINES_LIVE" <<'EOF'
 {
   "device.zpr.adapter.cn": {
     "web.demo": {
-      "hostnames": ["webhost", "m-7f3a2b"],
-      "zpr_addr": ["fd5a:5052:8888::80"]
-    },
-    "dns.demo": {
-      "zpr_addr": ["fd5a:5052:8888::53"]
+      "hostnames": ["webhost", "m-7f3a2b"]
     },
     "alice": { "hostnames": ["alicebox", "webhost"] }
   }
 }
 EOF
-assert_fixture_keeps_grants "collision (section 6)"
 flush_machines
 
 if wait_conflict webhost 30 yes; then
@@ -476,17 +451,12 @@ cat > "$MACHINES_LIVE" <<'EOF'
 {
   "device.zpr.adapter.cn": {
     "web.demo": {
-      "hostnames": ["webhost", "m-7f3a2b"],
-      "zpr_addr": ["fd5a:5052:8888::80"]
-    },
-    "dns.demo": {
-      "zpr_addr": ["fd5a:5052:8888::53"]
+      "hostnames": ["webhost", "m-7f3a2b"]
     },
     "alice": { "hostnames": ["alicebox", "web"] }
   }
 }
 EOF
-assert_fixture_keeps_grants "precedence (section 7)"
 flush_machines
 
 if wait_conflict web 30 yes; then
@@ -517,17 +487,12 @@ cat > "$MACHINES_LIVE" <<'EOF'
 {
   "device.zpr.adapter.cn": {
     "web.demo": {
-      "hostnames": ["webhost", "m-7f3a2b"],
-      "zpr_addr": ["fd5a:5052:8888::80"]
-    },
-    "dns.demo": {
-      "zpr_addr": ["fd5a:5052:8888::53"]
+      "hostnames": ["webhost", "m-7f3a2b"]
     },
     "alice": { "hostnames": ["alicebox", "Not_A_Label"] }
   }
 }
 EOF
-assert_fixture_keeps_grants "invalid-name (section 8)"
 flush_machines
 
 # Invalid values are rejected before the claim pass, so they never reach

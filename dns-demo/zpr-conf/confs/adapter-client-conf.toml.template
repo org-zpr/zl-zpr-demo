@@ -1,9 +1,0 @@
-[global]
-ca_file = "include/auth-ca.crt"
-tun_if = "tun9"
-
-[adapter]
-name = "alice"
-node_addr = "@@NODE_ADDR@@:5000"
-node_public_key_file = "include/node-noise-pub.pem"
-bootstrap_key = "include/alice-private-key.pem"
