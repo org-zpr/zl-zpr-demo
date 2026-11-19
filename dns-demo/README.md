@@ -1,10 +1,13 @@
 # dns-demo
 
-A containerized single-node ZPR environment for the DNS integration
+A containerized ZPR environment of Zodes for the DNS integration
 ([zipline#34](https://github.com/org-zpr/zl-zipline/issues/34); the design is
 `zl-zpr-dev-context/docs/DNS.md`).
-This fixture stands up node + visa service + web service + client + a CoreDNS
-resolver (`dns`), with a policy governing both DNS hops: a ZPR client `dig`s a
+This fixture stands up a relay Zode hosting the visa service, and three
+endpoint Zodes linked to it: a web service, a client and a CoreDNS resolver
+(`dns`). Every ZPR process is a `ph zode`
+([zl-zipline#235](https://github.com/org-zpr/zl-zipline/issues/235);
+`zl-zpr-dev-context/docs/ZODE_LINKS.md`). A policy governs both DNS hops: a ZPR client `dig`s a
 ZPL service name (`web.demo`) over the overlay and gets the current provider's
 address from the VS admin API.
 
@@ -17,36 +20,35 @@ OCI/OpenTofu parts.
 |---|---|
 | `Makefile` | builds `ph`, `vs`, `vs-admin`, `vsapikey`, `zplc`, `zpdump`, `coredns` into `bin/` |
 | `Dockerfile` | ubuntu:24.04 + valkey + dnsutils + the ZPR binaries (image `zpr-dns-demo`) |
-| `docker-compose.yml` | `node` (172.30.1.10), `vs` (.11), `web` (.12), `client` (.13), `dns` (.14) |
-| `local-compute/deploy-docker.sh` | render templates → mint API keys → compile policy → compose up → launch ZPR processes |
-| `local-compute/entrypoint-*.sh` | per-container tun9 setup (+ static ZPR address, except the client) |
+| `docker-compose.yml` | `relay` (172.30.1.10: relay Zode + visa service + valkey), `web` (.12), `client` (.13), `dns` (.14) |
+| `local-compute/deploy-docker.sh` | mint API keys → render + compile policy → compose up → launch the relay, `vs`, then the endpoint Zodes |
+| `local-compute/entrypoint-*.sh` | per-container tun9 setup (+ static ZPR address, except the client, whose `ph zode` adds it) |
 | `local-compute/test-dns.sh` | the end-to-end DNS acceptance test (see below) |
 | `zpr-conf/admin/` | `dns-demo.zpl`, `dns-demo.zplc.template`, `attrfile.json`, `machines.json` (policy) |
-| `zpr-conf/confs/` | node + adapter config templates, `Corefile` |
+| `zpr-conf/confs/` | `Corefile` |
 | `zpr-conf/include/` | demo PKI (freshly generated, see below) |
-| `commands/` | `demo-vs-admin`, `demo-status`, `demo-shell`, `demo-check-ph`, `demo-stop-ph`, `demo-restart-ph`, `lib.sh` |
+| `commands/` | `demo-vs-admin`, `demo-status`, `demo-shell`, `demo-check-ph`, `demo-stop-ph`, `demo-restart-ph`, `lib.sh` (the name table: each Zode's `ph zode` command line) |
 | `tools/` | `regen-banner.sh` (web's live banner page) |
 
 ## Overlay addresses
 
 | Who | ZPR address |
 |---|---|
-| visa service | `fd5a:5052::1` (well-known) |
-| node | `fd5a:5052:90de::10` (`90de` = "node": N-ine + ode) |
-| web service | `fd5a:5052:8888::80` (granted by `machines`) |
-| resolver | `fd5a:5052:8888::53` (granted by `machines`) |
-| client (alice) | dynamic (fabric-assigned, `fd5a:5052:adda:1::/64` pool) |
+| visa service (`vs.zpr`) | `fd5a:5052::1` (well-known; a second address on the relay's TUN) |
+| relay (`node.demo`) | `fd5a:5052:90de::10` (`90de` = "node": N-ine + ode) |
+| web service (`web.demo`) | `fd5a:5052:8888::80` |
+| resolver (`dns.demo`) | `fd5a:5052:8888::53` |
+| client (`alice`) | `fd5a:5052:8888::13` |
 
-`fd5a:5052:90de::/64` is reserved for nodes — nothing else may use it.
+`fd5a:5052:90de::/64` is reserved for the relay — nothing else may use it.
 
-Since zipline#83 an adapter exits fatally when a configured `zpr_addr` is not
-granted. The web and resolver addresses are granted by the `machines` trusted
-service, which vends `device.zpr_addr` from `machines.json`
-(zipline#108) — the policy no longer pins any address. The client is a
-user-only actor, so it carries no `zpr_addr`: the fabric assigns its address
-from the dynamic pool
-on grant, and `ph` adds it to `tun9` itself. `test-dns.sh` discovers the
-client's current address by CN via the VS admin API.
+Every Zode is a node in `dns-demo.zplc.template`, named by its certificate CN,
+and that node's `zpr_address` pins its ZPR address. The relay is the only
+`transit = true` node and the only one with a substrate address (compose's
+172.30.1.10:5000); each endpoint Zode has an initial link to it
+(`--initial-link node.demo@172.30.1.10:5000`) and a policy link to it, and
+nothing else, so the relay carries all their traffic. `test-dns.sh` still
+discovers the client's address by CN via the VS admin API.
 
 ## Build
 
@@ -68,8 +70,9 @@ docker build -t zpr-dns-demo .
 local-compute/deploy-docker.sh
 ```
 
-Brings up the five containers, compiles and installs the policy, and launches
-`ph node`, `vs`, and the vs/web/client/dns adapters under tmux (logs land in
+Brings up the four containers, compiles and installs the policy, and launches
+under tmux the relay `ph zode`, then `vs` beside it (once the relay has
+registered with it), then the web, client and dns `ph zode`s (logs land in
 `local-compute/logs/`). CoreDNS itself is the `dns` container's entrypoint.
 
 Verify:
@@ -115,7 +118,7 @@ ZPR addresses are IPv6-only), an unknown service and a two-label name
 **Liveness.** Resolution tracks the *current* provider:
 
 ```sh
-commands/demo-stop-ph web        # kill web's adapter
+commands/demo-stop-ph web        # stop web's Zode
 # within ttl+negative_ttl (~40 s): dig web.demo -> NXDOMAIN
 commands/demo-restart-ph web     # relaunch it
 # dig web.demo -> fd5a:5052:8888::80 again
@@ -142,24 +145,20 @@ docker exec dns sh -c 'curl -s -o /dev/null -w "%{http_code}" \
 
 ## Machine names (zipline#55)
 
-Services are not the only things with names: a **machine** (an adapter's
+Services are not the only things with names: a **machine** (a Zode's
 device) can be named too, by a trusted service acting as the naming
 authority. `zpr-conf/admin/machines.json` is that authority's data here —
-the `machines` file store vends it as the `device.hostname` attribute, and
-(since zipline#108) also grants the static service addresses as
-`device.zpr_addr`:
+the `machines` file store vends it as the `device.hostname` attribute:
 
 ```toml
 [trusted_services.machines]
 api = "file"
-returns_attributes = ["hostnames -> device.hostname{}", "zpr_addr -> device.zpr_addr"]
+returns_attributes = ["hostnames -> device.hostname{}"]
 expiration_seconds = 3600
 ```
 
 ```json
-{ "device.zpr.adapter.cn": { "web.demo": { "hostnames": ["webhost", "m-7f3a2b"],
-                                           "zpr_addr": ["fd5a:5052:8888::80"] },
-                             "dns.demo": { "zpr_addr": ["fd5a:5052:8888::53"] },
+{ "device.zpr.adapter.cn": { "web.demo": { "hostnames": ["webhost", "m-7f3a2b"] },
                              "alice":    { "hostnames": ["alicebox"] } } }
 ```
 
@@ -187,7 +186,7 @@ since zipline#105 it is not what keeps the `machines` store woven (see
 Policy notes).
 
 **Negative controls** (`test-dns.sh` sections 6–8). Each mutates the live
-`local-compute/conf/vs/machines.json`, forces a re-read with
+`local-compute/conf/relay/machines.json`, forces a re-read with
 `commands/demo-vs-admin services --id machines --flush` (the admin API's
 `DELETE /admin/services/machines/cache`), and restores the original after:
 
@@ -211,11 +210,10 @@ the attrfile store never loads, no `user.*` attribute is ever vended, and a
 bare `users` condition can never match. `attrfile.json` is keyed by
 `device.zpr.adapter.cn` (the file store's identity-key/value JSON shape).
 
-The `machines` store needs no such reference: it vends `device.hostname` and
-`device.zpr_addr`, both visa-service-interpreted attributes, and since
+The `machines` store needs no such reference: it vends `device.hostname`, a
+visa-service-interpreted attribute, and since
 [zipline#105](https://github.com/org-zpr/zl-zipline/issues/105) the compiler
-retains any store vending one (`device.hostname`, `device.zpr_addr`) on its
-own. The `ping` rule's object-side device spec `on hostname: devices`
+retains any store vending one on its own. The `ping` rule's object-side device spec `on hostname: devices`
 (key-presence on `device.hostname`) stays because it expresses the demo's
 point, not to defeat pruning. `machines.json` uses the same
 identity-key/value JSON shape.
@@ -223,9 +221,12 @@ identity-key/value JSON shape.
 ## PKI (zpr-conf/include/)
 
 All keys and certs are freshly generated for this demo — nothing is shared
-with `multinode-demo`. X25519 identity keys and noise certs come from
-`zpr-visaservice/tools/zpr-pki` (CNs: `node.demo`, `vs.zpr`, `web.demo`,
-`dns.demo`, `alice`). The admin TLS cert is a plain openssl self-signed RSA
+with `multinode-demo`. Each Zode has an RSA auth key (`<name>-private-key.pem`,
+its `[bootstrap]` key in the policy) and an X25519 link key with a cert signed
+by `auth-ca.crt` (`<name>-noise.{key,crt}`), from
+`zpr-visaservice/tools/zpr-pki` (CNs: `node.demo`, `web.demo`, `dns.demo`,
+`alice`). The visa service needs neither: it runs on the relay's TUN and
+authenticates by construction. The admin TLS cert is a plain openssl self-signed RSA
 cert carrying `subjectAltName = DNS:vs.zpr, IP:fd5a:5052::1` — required
 because Go's TLS verifier (the I1 CoreDNS plugin) ignores CN, and `zpr-pki
 gensignedcert` cannot emit a SAN. Regenerate with `tools/regen-pki.sh`.

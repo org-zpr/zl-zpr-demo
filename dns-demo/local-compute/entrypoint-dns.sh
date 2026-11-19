@@ -1,8 +1,8 @@
 #!/bin/sh
-# dns: bring up tun9 (matches adapter-dns-conf.toml zpr_addr), then run CoreDNS
-# (with the zpr plugin) in the foreground — it keeps the container alive.
-# The `ph adapter` process is launched by deploy-docker.sh via `docker exec`
-# after the VS is up; the plugin tolerates the adapter coming up later
+# dns: bring up tun9 (with the `ph zode --zpr-addr`), then run CoreDNS (with
+# the zpr plugin) in the foreground — it keeps the container alive.
+# The `ph zode` process is launched by deploy-docker.sh via `docker exec`
+# after the VS is up; the plugin tolerates the Zode coming up later
 # (Ready() is the probe, queries SERVFAIL until the overlay path works).
 set -e
 

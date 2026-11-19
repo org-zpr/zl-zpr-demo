@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Relaunch NAME's ph exactly as deploy-docker.sh did: same tmux session name,
-# same recorded LAUNCH command, same /conf cwd, tee'd to the same log.
+# (Re)launch NAME's `ph zode` from lib.sh's name table: its tmux session name,
+# LAUNCH command and /conf cwd, tee'd to its log. deploy-docker.sh launches
+# every Zode through this, so a restart runs exactly what deploy ran.
 #   ./demo-restart-ph <NAME>
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
