@@ -1,10 +1,9 @@
 #!/bin/sh
-# client: bring up tun9 (matches adapter-client-conf.toml tun_if), then idle.
+# client: bring up tun9 (the `ph zode --tun-if`), then idle.
 # Unlike multinode-demo's host-side alice/bob, the client here is containerized
-# with its own tun so it can curl (and later dig) over the overlay. The client
-# is a user-only actor with no static zpr_addr: the fabric assigns its address
-# on grant (zipline#83/#89) and ph adds it to tun9 itself.
-# The `ph adapter` process is launched by deploy-docker.sh via `docker exec`.
+# with its own tun so it can curl (and later dig) over the overlay. Its ZPR
+# address is its node's zpr_address in the policy; ph adds it to tun9 itself.
+# The `ph zode` process is launched by deploy-docker.sh via `docker exec`.
 set -e
 
 mkdir -p /var/run/zpr   # ph control socket lives here

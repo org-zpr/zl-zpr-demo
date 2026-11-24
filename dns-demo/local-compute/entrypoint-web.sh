@@ -1,7 +1,7 @@
 #!/bin/sh
-# web: bring up tun9 (matches adapter-web-conf.toml zpr_addr), then run nginx in
-# the foreground (keeps the container alive). The `ph adapter` process is launched
-# by deploy-docker.sh via `docker exec`.
+# web: bring up tun9 (with the `ph zode --zpr-addr`), then run nginx in the
+# foreground (keeps the container alive). The `ph zode` process is launched by
+# deploy-docker.sh via `docker exec`.
 set -e
 
 mkdir -p /var/run/zpr   # ph control socket lives here

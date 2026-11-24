@@ -1,34 +1,69 @@
-# dns-demo policy configuration (zipline#35; shape: zl-zpr-dev-context/docs/DNS.md, "Configuring it"). Single node, no [links.*].
+# dns-demo policy configuration (zipline#35; shape: zl-zpr-dev-context/docs/DNS.md, "Configuring it").
+#
+# Topology (Zodes, zl-zipline#235; the shape of zipline#253's generated
+# policy): every `ph zode` is a node named by its certificate CN, and its
+# `zpr_address` pins that Zode's ZPR address to the CN. node.demo is the relay:
+# the only `transit = true` node and the only one with a substrate address,
+# compose's static IP. The endpoint Zodes (web.demo, dns.demo, alice) have no
+# substrate address -- the visa service takes the one the relay observed on
+# each Zode's initial link (zl-zipline#264) -- and each is linked to the relay
+# only, so the relay carries all their traffic. vs.zpr is not a node: it is a second address on the relay's
+# TUN. No `[visa_service] dock_node`: zplc 0.21.0 warns it is not enforced.
 
-[nodes.n0]
+[nodes."node.demo"]
 provider = [["device.zpr.adapter.cn", "node.demo"]]
 zpr_address = "fd5a:5052:90de::10"
+transit = true
 
-[nodes.n0.substrate_addrs]
-i0 = "@@NODE_ADDR@@:5000"
+[nodes."node.demo".substrate_addrs]
+i0 = "@@RELAY_SUBSTRATE_ADDR@@"
+
+[nodes."web.demo"]
+provider = [["device.zpr.adapter.cn", "web.demo"]]
+zpr_address = "fd5a:5052:8888::80"   # web's service address (test-dns.sh WEB_ADDR)
+
+[nodes."dns.demo"]
+provider = [["device.zpr.adapter.cn", "dns.demo"]]
+zpr_address = "fd5a:5052:8888::53"   # the resolver's address (Corefile clients, test-dns.sh RESOLVER)
+
+[nodes.alice]
+provider = [["device.zpr.adapter.cn", "alice"]]
+zpr_address = "fd5a:5052:8888::13"   # the client
+
+[links."node.demo~web.demo"]
+peers = [ { node = "node.demo" }, { node = "web.demo" } ]
+
+[links."dns.demo~node.demo"]
+peers = [ { node = "node.demo" }, { node = "dns.demo" } ]
+
+[links."alice~node.demo"]
+peers = [ { node = "node.demo" }, { node = "alice" } ]
 
 
+# The CA that signs every Zode's link certificate (tools/regen-pki.sh).
 [trusted_services.default]
+cert_path = "../include/auth-ca.crt"
 
 [trusted_services.attrfile]
 api = "file"
 returns_attributes = ["location -> user.location", "access -> user.access{}"]
 expiration_seconds = 3600
 
-# The naming and addressing authority (zipline#55, zipline#108): vends
-# device.hostname (the machine-name claims behind the hosts index) and
-# device.zpr_addr (the static ZPR addresses granted to web.demo and dns.demo).
-# A file store resolves `<id>.json` in the VS working dir, so this reads
-# /conf/machines.json (deploy-docker.sh copies it beside attrfile.json).
+# The naming authority (zipline#55): vends device.hostname, the machine-name
+# claims behind the hosts index. No device.zpr_addr grant: every Zode's
+# address is its node's `zpr_address` above. A file store resolves
+# `<id>.json` in the VS working dir, so this reads /conf/machines.json
+# (deploy-docker.sh copies it beside attrfile.json).
 [trusted_services.machines]
 api = "file"
-returns_attributes = ["hostnames -> device.hostname{}", "zpr_addr -> device.zpr_addr"]
+returns_attributes = ["hostnames -> device.hostname{}"]
 expiration_seconds = 3600
 
 
+# One auth key per Zode. None for vs.zpr: the visa service runs on the
+# relay's TUN and authenticates by construction.
 [bootstrap]
 "node.demo" = "../include/node-public-key.pem"
-"vs.zpr" = "../include/vs-public-key.pem"
 "web.demo" = "../include/web-public-key.pem"
 "dns.demo" = "../include/dns-public-key.pem"
 "alice" = "../include/alice-public-key.pem"
@@ -58,12 +93,12 @@ icmp_codes = [128, 129]
 [services.web]                      # lowercase: DNS lookups are case-sensitive on the VS side
 protocol = "http"
 port = 80
-provider = [["device.zpr.adapter.cn", "web.demo"]]   # static addr granted by `machines` (device.zpr_addr)
+provider = [["device.zpr.adapter.cn", "web.demo"]]   # at its node's zpr_address
 
 [services.zpr-dns]
 protocol = "dns"
 port = 53
-provider = [["device.zpr.adapter.cn", "dns.demo"]]   # static addr granted by `machines` (device.zpr_addr)
+provider = [["device.zpr.adapter.cn", "dns.demo"]]   # at its node's zpr_address
 
 [services.vs-admin]
 protocol = "vs-admin"
@@ -72,7 +107,7 @@ provider = [["device.zpr.adapter.cn", "vs.zpr"]]
 
 # ICMP6 echo, provided by the web machine (zipline#55). No address of its
 # own: ping6 targets whatever address the hosts index resolved, and the
-# provider record already names web.demo's adapter.
+# provider record already names web.demo's Zode.
 [services.ping]
 protocol = "ping"
 provider = [["device.zpr.adapter.cn", "web.demo"]]

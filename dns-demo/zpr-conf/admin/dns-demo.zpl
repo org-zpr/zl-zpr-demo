@@ -7,7 +7,8 @@ Define web as a service.
 # shape — a service as the *subject* of an Allow — is proved by this issue).
 Define zpr-dns as a service.
 
-# The visa service's admin API, provided by the VS adapter itself.
+# The visa service's admin API, provided by the visa service itself (vs.zpr, on
+# the relay's TUN).
 Define vs-admin as a service.
 
 # Deviation from the originally planned bare `Allow users ...`, found by test: an
